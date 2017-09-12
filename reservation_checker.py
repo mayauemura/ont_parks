@@ -17,6 +17,7 @@ class ReservationChecker(object):
     '''to scrape the Ontario parks webpages to check campsite availablility
     '''
 
+    # TODO remove POSSIBLE_x -- generate
     POSSIBLE_CAMPSITES = ['Campsite', 'Roofed Accommodation', 'Cottage', 'Backcountry', 'Group']
 
     POSSIBLE_MONTHS = map(lambda x: x[:3], calendar.month_name)
@@ -109,12 +110,22 @@ class ReservationChecker(object):
         self._select('selArrMth', self.POSSIBLE_MONTHS[month])
         self._select('selArrDay', "%d%s" % (day,"tsnrhtdd"[(day/10%10!=1)*(day%10<4)*day%10::4]))
         #https://stackoverflow.com/questions/9647202/ordinal-numbers-replacement
-        self._select('MainContentPlaceHolder_LocationList', park)
+        self._select('selLocation', park)
         self._select('selPartySize', str(n))
+
+        # click find by list
+        self.browser.find_element_by_id('linkButtonList').click() # alt: trigger 'href' directly
+        xpath = "//div[@id='viewPort']/table[@class='list_new']/tbody/tr"
+        try:
+            lst_elemt = self.browser.find_elements_by_xpath(xpath)
+        except NoSuchElementException, e:
+            self.log.error('Could not find list of availability\n'
+                'expecting xpath: %s' % xpath)
+        l = self._check_for_avail(lst_elemt)
 
         self.screenshot('after.png')
 
-        return []
+        return l
 
     def _select(self, html_id, select_value):
         """select the indicated value, if possible
@@ -131,6 +142,22 @@ class ReservationChecker(object):
             self.log.error("Cannot find id '%s', or selector for value %s" % (html_id,
                 select_value))
         WebDriverWait(self.browser, 10).until(EC.invisibility_of_element_located((By.ID, 'viewPortStatus')))
+
+    def _check_for_avail(self, lst_of_tr):
+        """Interpret <tr> to be available or not
+        Returns:
+            list of names of sites that are available
+        """
+        lst_of_avail_sites = []
+        for i in lst_of_tr:
+            try:
+                # TODO save thumbnail of all available sites
+                xpath = "./td[1]/a/img[@title='Available']"
+                t = i.find_elements_by_xpath(xpath)
+                lst_of_avail_sites.append(i.find_element_by_xpath('./td[2]').text)
+            except NoSuchElementException: # Unavailable / Unreservable
+                break
+        return lst_of_avail_sites
 
     def screenshot(self, fn):
         self.browser.save_screenshot(self.SCREENSHOT_FOLDER + fn)
@@ -155,6 +182,6 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     try:
-        r.get_availability(args.campsite, args.month, args.day, args.park, args.n)
+        print r.get_availability(args.campsite, args.month, args.day, args.park, args.n)
     finally:
         r.end()
